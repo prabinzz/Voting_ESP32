@@ -6,25 +6,24 @@
 #include <SPI.h>
 #include <MFRC522.h>
 
-  // set the LCD address to 0x3F for a 16 chars and 2 line display
 
 // wifi vars
 const char* ssid = "IIC_WIFI";
 const char* password = "R@isecom22";
-String rfid_id = "";
-uint8_t fingerprint_status = 0;
-uint8_t fingerprint_attempt = 0;
-String user_id = "";
-String user_name = "";
 
+
+// rfid check url
 # define RFID_MATCH_URL "http://192.168.40.107:8000/match/rfid" 
+// final vote cast url
 # define CAST_VOTE_URL "http://192.168.40.107:8000/cast-vote" 
 
-unsigned long lastTime = 0;
-unsigned long timerDelay = 5000;
+
+// ss & reset pin of rfid 
 
 #define SS_PIN 5
 #define RST_PIN 27
+
+// buzzer pin number
 #define buzzerPin 25
 
 // push button pins
@@ -32,9 +31,18 @@ unsigned long timerDelay = 5000;
 #define btn2 33
 #define btn3 26
 #define btn4 12
-   
+
+// Global veriable to store data
 #define voter_name ""
 #define voter_id -1
+
+String rfid_id = "";
+uint8_t fingerprint_status = 0;
+uint8_t fingerprint_attempt = 0;
+String user_id = "";
+String user_name = "";
+
+// fingerprint serial connection 
 #define mySerial Serial2
 
 LiquidCrystal_I2C lcd(0x3F,16,2);
@@ -45,10 +53,18 @@ HTTPClient http;
 Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
 
 void setup() {
+  // initialize serial
+  Serial.begin(115200);
+  // set buzzer pin to output mode 
   pinMode(buzzerPin, OUTPUT);
-  Serial.begin(115200); 
+
+  // connect to wifi function
   ConnectToWifi();
+
+  // initialize rfid function
   initiateRfid();
+  
+  // buzz
   buzzer("success");
 
   // push button init
@@ -58,12 +74,13 @@ void setup() {
   pinMode(btn4, INPUT_PULLUP);
 
   // fingerpritn setup 
-  // set the data rate for the sensor serial port
-  finger.begin(57600);
+  finger.begin(57600); // set the data rate for the sensor serial port
   delay(5);
   if (finger.verifyPassword()) {
+    // verify using default password
     Serial.println("Found fingerprint sensor!");
   } else {
+    // didnt find fingerpirnt / password didnt matched
     Serial.println("Did not find fingerprint sensor :(");
     while (1) { delay(1); }
   }
@@ -71,15 +88,21 @@ void setup() {
 
 void loop() {
   delay(500);
+  
+  // display scan your card
   lcdClear();
   lcdPrint(0,0, "Scan your card..");
 
-  // scan card
+  // scan card untill rfid is detected
   while(rfid_id == ""){
+    // get id of rfid card and store in rfid_id
     rfid_id = readRfid();
   }
+
+  // call verifyRfid function
+  // Returns: 1 = Rfid Found  -1 = Rfid Not found -2 = Already voted
   int id = verifyRfid(rfid_id);
-  Serial.println(rfid_id);
+
   if(id == -1){
     // Rfid not found
     lcdClear();
@@ -111,35 +134,48 @@ void loop() {
     delay(2000);
     rfid_id = ""; // temp
 
-    //fingerprint Verification
     lcdClear();
     lcdPrint(0, 0, "Finger scan.");
+    // call getFingerprintID function;
+    // initial call sets fingerprint_status, fingerprint_attempt
     getFingerprintID();
+
     while(fingerprint_status != 1 && fingerprint_attempt < 2){
+      // veriable def:
+      // fingerprint_status = stores fingerprint is detected or not 
+      // fingerprint_attempt = sores how many times finger has been scaned
       delay(100);
       getFingerprintID();
     }
+
+    // set attempt to 0 for next loop;
     fingerprint_attempt= 0;
-    Serial.println("fing Status: ");
-    Serial.println(fingerprint_status);
+
     if(fingerprint_status == 0 || fingerprint_status == 3){
+      // fingerprint_status: 
+      // 0: fingerprint not found
+      // 3: fingerprint found but userid received from server
+      //    and fingerprint id didn't match
       lcdClear();
       lcdPrint(0, 0, "Fingerprint");
       lcdPrint(1, 4, "Not Found");
       buzzer("error");
       delay(2000);
     }else{
+    // Fingerprint found
     lcdClear();
     lcdPrint(0, 0, "Fingerprint");
     lcdPrint(1, 4, "Found.");
     buzzer("succes");
     delay(1000);
-    // cast vote after rfid and fingerpint are ok 
+    // call castVote function after rfid and fingerpint are ok 
     castVote();
+    // set fingerprint_status to 0  for next loop
     fingerprint_status = 0;
     }
   
   }else{
+    // reset for next loop
     rfid_id = "";
   }
 }
@@ -148,21 +184,30 @@ void castVote(){
   lcdClear();
   lcdPrint(0,0, "Cast your vote");
   lcdPrint(1,2, "Using Buttons");
+  // get button pressed number by calling getButtonInput funciton
   int button = getButtonInput();
+  // Confirm vote
   lcdClear();
   delay(500);
   lcdPrint(0,0, "Confirm vote");
   lcdPrint(1,0, "Press Same button");
+  // // get button pressed number by calling getButtonInput funciton
   int button2 = getButtonInput();
   if(button == button2){
+    // if same button pressed 
     lcdClear();
-    lcdPrint(0, 0, "Thank you");
-    lcdPrint(1, 2, "for voting.");
+    lcdPrint(0, 0, "Updating");
+    lcdPrint(1, 2, "Vote count..");
+    // uplad vote to server by calling uploadVote function
     uploadVote(user_id, button);
+
+    lcdClear();
+    lcdPrint(0, 0, "Voting");
+    lcdPrint(1, 2, "Successfull");
     buzzer("succes");
-    delay(1500);
-    //  TODO: Upload Vote
+    delay(1000);
   }else{
+    // if diffent button pressed
     lcdClear();
     lcdPrint(0, 0, "Conformation faild");
     lcdPrint(1, 2, "");
@@ -170,7 +215,6 @@ void castVote(){
   }
 }
 int uploadVote(String id, int vote){
-  Serial.println("Test1");
   if(WiFi.status() == WL_CONNECTED){
     Serial.print("Making POST request to ");
     Serial.println(CAST_VOTE_URL);
@@ -178,9 +222,7 @@ int uploadVote(String id, int vote){
     http.begin(CAST_VOTE_URL);
     http.addHeader("id", id);
     http.addHeader("vote", String(vote));
-    Serial.println("Test2");
     int responseCode = http.POST("{}");
-    Serial.println("Test3");
     Serial.println(responseCode);
     return 1;
   }else{
@@ -291,6 +333,7 @@ int verifyRfid(String rfid_tag){
       http.end();
       return -1;
     }else if (responseCode == 445){
+      http.end();
       return -2;
     }else{
       http.end();
@@ -426,22 +469,5 @@ uint8_t getFingerprintID() {
   if(finger.fingerID != user_id.toInt()){
     fingerprint_status = 3;
   }
-  return finger.fingerID;
-}
-
-// returns -1 if failed, otherwise returns ID #
-int getFingerprintIDez() {
-  uint8_t p = finger.getImage();
-  if (p != FINGERPRINT_OK)  return -1;
-
-  p = finger.image2Tz();
-  if (p != FINGERPRINT_OK)  return -1;
-
-  p = finger.fingerFastSearch();
-  if (p != FINGERPRINT_OK)  return -1;
-
-  // found a match!
-  Serial.print("Found ID #"); Serial.print(finger.fingerID);
-  Serial.print(" with confidence of "); Serial.println(finger.confidence);
   return finger.fingerID;
 }
