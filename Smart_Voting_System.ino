@@ -1,6 +1,5 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
-#include <ArduinoJson.h>
 #include <LiquidCrystal_I2C.h>
 #include <Adafruit_Fingerprint.h>
 #include <SPI.h>
@@ -13,13 +12,15 @@ const char* password = "R@isecom22";
 
 
 // rfid check url
-# define RFID_MATCH_URL "http://192.168.40.107:8000/match/rfid" 
+# define RFID_MATCH_URL "https://iotvotingsystem.onrender.com/match/rfid" 
 // final vote cast url
-# define CAST_VOTE_URL "http://192.168.40.107:8000/cast-vote" 
+# define CAST_VOTE_URL "https://iotvotingsystem.onrender.com/cast-vote" 
+
+// Access key for server
+# define secret "7d0664823505ac3b4afbdd0e5035dc61"
 
 
 // ss & reset pin of rfid 
-
 #define SS_PIN 5
 #define RST_PIN 27
 
@@ -42,11 +43,11 @@ uint8_t fingerprint_attempt = 0;
 String user_id = "";
 String user_name = "";
 
-// fingerprint serial connection 
+// fingerprint serial connection
 #define mySerial Serial2
 
-LiquidCrystal_I2C lcd(0x3F,16,2);
-MFRC522 mfrc522(SS_PIN, RST_PIN);
+LiquidCrystal_I2C lcd(0x3F,16,2); // initialize display
+MFRC522 mfrc522(SS_PIN, RST_PIN); // initialize rfid 
 HTTPClient http;
 
 // initialize fingerprint sensor
@@ -75,7 +76,7 @@ void setup() {
 
   // fingerpritn setup 
   finger.begin(57600); // set the data rate for the sensor serial port
-  delay(5);
+  delay(5); 
   if (finger.verifyPassword()) {
     // verify using default password
     Serial.println("Found fingerprint sensor!");
@@ -221,10 +222,15 @@ int uploadVote(String id, int vote){
     // http request
     http.begin(CAST_VOTE_URL);
     http.addHeader("id", id);
+    http.addHeader("secret", secret);
     http.addHeader("vote", String(vote));
     int responseCode = http.POST("{}");
     Serial.println(responseCode);
+    if (responseCode == 200){
     return 1;
+    }else{
+      return 0;
+    }
   }else{
     return 0;
   }
@@ -244,7 +250,6 @@ void ConnectToWifi(){
     Serial.print(".");
   }
 
-  Serial.println("");
   Serial.print("Connected to WiFi network with IP Address: ");
   lcdClear();
   lcdPrint(1,0, "IP: "+WiFi.localIP().toString());
@@ -259,6 +264,7 @@ void lcdSetup(){
   lcd.clear();         
   lcd.backlight();      // Make sure backlight is on
 }
+
 void lcdPrint(uint8_t row, uint8_t position, String message ){
   lcd.setCursor(position,row);
   lcd.print(message);
@@ -313,6 +319,7 @@ int verifyRfid(String rfid_tag){
 
     // http request
     http.begin(RFID_MATCH_URL);
+    http.addHeader("secret", secret);
     http.addHeader("rfid", rfid_tag);
 
     int responseCode = http.POST("{}");
@@ -377,7 +384,7 @@ void buzzer(String type){
 int getButtonInput(){
   int buttonPressed = 0;
   while(buttonPressed == 0){
-    if(digitalRead(btn1) == 0){
+    if(digitalRead(btn1) == 0){++
       buttonPressed = 1;
       return 1;
     }
